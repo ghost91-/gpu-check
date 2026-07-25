@@ -87,7 +87,6 @@ class GPUConfig:
     gpu_burn_path: str
     llama_server_path: str
     llama_bench_path: str
-    dcgmi_path: str
     llama_server_host: str
     llama_server_port: int
     smoke_prompt: str
@@ -585,7 +584,6 @@ CHECK_NAMES = [
     ("aer-baseline", "PCIe AER counters (baseline)"),
     ("idle-thermals", "Idle thermals and power"),
     ("kernel-log-baseline", "Kernel log scan for Xid/AER/NVRM (baseline)"),
-    ("dcgm-diag", "DCGM diagnostic (if available)"),
     ("stress-test", "gpu-burn stress test"),
     ("pcie-under-load", "PCIe link under load"),
     ("clock-verification", "Clock verification under load (SW Power Cap bug screen)"),
@@ -1079,49 +1077,6 @@ class GPUChecker:
         self.check_kernel_log(
             "kernel-log-baseline", "Kernel log scan (baseline)", "baseline"
         )
-
-    def check_dcgm_diag(self):
-        step = "dcgm-diag"
-        name = "DCGM diagnostic"
-        if self.args.skip_dcgm:
-            self._skip(step, name, "Skipped (--skip-dcgm)")
-            return
-
-        dcgmi = self.cfg.dcgmi_path
-        if not dcgmi or not shutil.which(dcgmi):
-            self._skip(step, name, f"dcgmi not found: '{dcgmi}' (install DCGM for NVIDIA's own diagnostics)")
-            return
-
-        print(f"\n  >>> Running dcgmi diag -r 2 (quick, ~1-2 min)...")
-        cmd = f"{dcgmi} diag -r 2"
-        rc, out, err = run(cmd, timeout=300)
-        if rc != 0:
-            self._warn(
-                step, name,
-                f"dcgmi exited with code {rc}: {err[:200]}",
-                {"rc": rc, "stdout": out[:1000], "stderr": err[:500]},
-                action="DCGM failed to run, not a card health issue. Check DCGM installation. Safe to ignore if other checks pass.",
-            )
-            return
-
-        fail_count = 0
-        warn_count = 0
-        for line in out.splitlines():
-            if "Fail" in line and ":" in line:
-                fail_count += 1
-            elif "Warn" in line and ":" in line:
-                warn_count += 1
-
-        details = f"dcgmi diag -r 2 completed, {fail_count} failures, {warn_count} warnings"
-        if fail_count > 0:
-            self._fail(step, name, f"{fail_count} DCGM failures: {out[:500]}", {"output": out[:2000]})
-        elif warn_count > 0:
-            self._warn(
-                step, name, f"{warn_count} DCGM warnings: {out[:500]}", {"output": out[:2000]},
-                action="Review DCGM warnings. If they relate to PCIe or memory, investigate. If they are about tools/version, safe to ignore.",
-            )
-        else:
-            self._pass(step, name, details, {"output": out[:1000]})
 
     # ---- Stress test ----
 
@@ -1820,7 +1775,6 @@ class GPUChecker:
             self.check_idle_thermals,
             self.check_tlimit_thresholds,
             self.check_kernel_log_baseline,
-            self.check_dcgm_diag,
             self.check_stress_test,
             self.check_pcie_under_load,
             self.check_clock_verification,
@@ -1908,7 +1862,6 @@ def load_config(config_path: Path) -> GPUConfig:
         llama_bench_path=paths.get(
             "llama_bench_path", os.environ.get("GPU_CHECK_LLAMA_BENCH", "llama-bench")
         ),
-        dcgmi_path=paths.get("dcgmi_path", os.environ.get("GPU_CHECK_DCGMI", "dcgmi")),
         llama_server_host=paths.get("llama_server_host", "127.0.0.1"),
         llama_server_port=paths.get("llama_server_port", 8080),
         smoke_prompt=llm_smoke.get(
@@ -1972,11 +1925,6 @@ def main():
         "--skip-bug-report",
         action="store_true",
         help="Skip nvidia-bug-report.sh capture",
-    )
-    parser.add_argument(
-        "--skip-dcgm",
-        action="store_true",
-        help="Skip DCGM diagnostic",
     )
     parser.add_argument(
         "--list-checks",

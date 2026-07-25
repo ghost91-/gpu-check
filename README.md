@@ -17,9 +17,9 @@ python3 gpu-check.py --config configs/rtx-pro-6000-maxq.toml
 # Continue on fail (for testing the tool itself)
 python3 gpu-check.py --config configs/rtx-4070-laptop.toml --continue-on-fail
 
-# Quick check (no stress, no LLM, no bug-report, no DCGM)
+# Quick check (no stress, no LLM, no bug-report)
 python3 gpu-check.py --config configs/rtx-4070-laptop.toml \
-  --skip-stress --skip-llm --skip-bug-report --skip-dcgm
+  --skip-stress --skip-llm --skip-bug-report
 ```
 
 ### CLI flags
@@ -31,7 +31,6 @@ python3 gpu-check.py --config configs/rtx-4070-laptop.toml \
 | `--skip-stress` | Skip gpu-burn stress test |
 | `--skip-llm` | Skip LLM inference tests |
 | `--skip-bug-report` | Skip nvidia-bug-report capture |
-| `--skip-dcgm` | Skip DCGM diagnostic |
 | `--list-checks` | List all check names and exit |
 | `--protocol-dir DIR` | Directory for protocol output (default: protocols) |
 
@@ -43,7 +42,6 @@ python3 gpu-check.py --config configs/rtx-4070-laptop.toml \
 | `GPU_CHECK_GPU_BURN` | Path to gpu_burn binary |
 | `GPU_CHECK_LLAMA_SERVER` | Path to llama-server binary |
 | `GPU_CHECK_LLAMA_BENCH` | Path to llama-bench binary |
-| `GPU_CHECK_DCGMI` | Path to dcgmi binary |
 
 ## Config files
 
@@ -58,7 +56,7 @@ Each TOML config has:
 
 `model_file` can be an absolute path or a filename relative to `models_dir`.
 
-## Checks performed (31 total)
+## Checks performed (30 total)
 
 ### Identity and baseline (before stress)
 
@@ -73,34 +71,33 @@ Each TOML config has:
 9. PCIe AER counters (sysfs correctable, nonfatal, fatal)
 10. Idle thermals and power
 11. Kernel log scan for Xid errors
-12. DCGM diagnostic (if dcgmi available)
 
 ### Stress test
 
-13. gpu-burn stress test (default 15 min)
-14. PCIe link under load (auto-resolves idle PCIe gen warning)
-15. Clock verification under load (screens for SW Power Cap telemetry bug)
+12. gpu-burn stress test (default 15 min)
+13. PCIe link under load (auto-resolves idle PCIe gen warning)
+14. Clock verification under load (screens for SW Power Cap telemetry bug)
 
 ### Post-stress
 
-16. ECC error counts (delta from baseline)
-17. Row remapper status
-18. Retired pages status
-19. PCIe AER counters (delta from baseline, with error type breakdown)
-20. Kernel log scan
-21. Clock throttle reasons (HW/SW thermal, HW power brake, SW power cap)
+15. ECC error counts (delta from baseline)
+16. Row remapper status
+17. Retired pages status
+18. PCIe AER counters (delta from baseline, with error type breakdown)
+19. Kernel log scan
+20. Clock throttle reasons (HW/SW thermal, HW power brake, SW power cap)
 
 ### LLM tests
 
-22. LLM smoke test (load small model, verify coherent output, check VRAM)
-23. LLM VRAM-fill test (load large model, verify VRAM fills correctly)
-24. llama-bench benchmark (pp512 + tg128 tokens/sec)
+21. LLM smoke test (load small model, verify coherent output, check VRAM)
+22. LLM VRAM-fill test (load large model, verify VRAM fills correctly)
+23. llama-bench benchmark (pp512 + tg128 tokens/sec)
 
 ### Final
 
-25-29. ECC, row remapper, retired pages, AER (delta), kernel log
-30. Cooldown verification
-31. nvidia-bug-report capture
+24-28. ECC, row remapper, retired pages, AER (delta), kernel log
+29. Cooldown verification
+30. nvidia-bug-report capture
 
 ## Understanding the protocol output
 
@@ -117,8 +114,6 @@ Warnings include an `ACTION:` line with explicit instructions:
   proceed. If the count keeps rising after reseat, walk away.
 - **T.Limit specification at zero**: Possible VBIOS thermal config corruption
   (known Blackwell bug). Compare with a known-good card of the same model.
-- **DCGM warnings**: Review individually. Tooling issues are irrelevant to
-  the buy decision; PCIe or memory warnings need investigation.
 - **nvidia-bug-report / llama-bench parse failures**: Tooling issues, not
   card health. Re-run manually if needed.
 
@@ -167,8 +162,6 @@ Any FAIL means **do not buy**. The script stops at the first failure unless
 
 ### Optional
 
-- [DCGM](https://developer.nvidia.com/dcgm) (`dcgmi` binary) for NVIDIA's
-  own diagnostic
 - `nvidia-bug-report.sh` (ships with driver) for bug report capture
 - `sudo` access (for nvidia-bug-report if driver is not accessible without)
 

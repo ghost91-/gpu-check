@@ -58,6 +58,5 @@ models_dir = "."
 gpu_burn_path = "gpu_burn"
 llama_server_path = "llama-server"
 llama_bench_path = "llama-bench"
-dcgmi_path = "dcgmi"
 llama_server_host = "127.0.0.1"
 llama_server_port = 8080

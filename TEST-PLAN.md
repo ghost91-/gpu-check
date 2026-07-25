@@ -305,7 +305,7 @@ python3 gpu-check.py --config configs/rtx-pro-6000-maxq.toml
 This is the correct mode for the actual purchase test. Use
 `--continue-on-fail` only when testing the tool itself.
 
-The script runs 31 checks in sequence:
+The script runs 30 checks in sequence:
 
 1. nvidia-smi availability
 2. GPU identity (name, VRAM, device ID, VBIOS, serial)
@@ -313,17 +313,16 @@ The script runs 31 checks in sequence:
 4. PCIe link (gen, width, replay errors)
 5. Thermal T.Limit threshold sanity check
 6-11. Baseline: ECC, row remapper, retired pages, AER counters, idle thermals, kernel log
-12. DCGM diagnostic (if available)
-13. gpu-burn stress test (15 min, with load snapshot capture)
-14. PCIe link under load (auto-resolves idle PCIe gen warning)
-15. Clock verification under load (SW Power Cap bug screen)
-16-21. Post-stress: ECC, row remapper, retired pages, AER delta, kernel log, throttle reasons
-22. LLM smoke test (load model, verify coherent output)
-23. LLM VRAM-fill test (load large model, verify VRAM usage)
-24. llama-bench benchmark (pp512 and tg128 tokens/sec)
-25-29. Final: ECC, row remapper, retired pages, AER delta, kernel log
-30. Cooldown verification
-31. nvidia-bug-report capture
+12. gpu-burn stress test (15 min, with load snapshot capture)
+13. PCIe link under load (auto-resolves idle PCIe gen warning)
+14. Clock verification under load (SW Power Cap bug screen)
+15-20. Post-stress: ECC, row remapper, retired pages, AER delta, kernel log, throttle reasons
+21. LLM smoke test (load model, verify coherent output)
+22. LLM VRAM-fill test (load large model, verify VRAM usage)
+23. llama-bench benchmark (pp512 and tg128 tokens/sec)
+24-28. Final: ECC, row remapper, retired pages, AER delta, kernel log
+29. Cooldown verification
+30. nvidia-bug-report capture
 
 ### 2.3 During the stress test
 
