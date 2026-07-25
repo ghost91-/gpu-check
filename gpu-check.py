@@ -570,28 +570,20 @@ def parse_watts(val: str) -> float:
 
 
 def read_power_draw(max_plausible_w: float = 0) -> float:
-    """Read power.draw, cross-checking if the value is implausible.
+    """Read power.draw, discarding the first reading after GPU state transitions.
 
-    nvidia-smi --query-gpu occasionally returns garbage sensor readings.
-    If the first reading exceeds max_plausible_w (when > 0), re-reads via
-    nvidia-smi -q -d POWER which uses a different code path.
-    Returns -1.0 if both fail or return N/A.
+    nvidia-smi returns a garbage power value (590.01W) on the first query
+    after the GPU transitions from P8 sleep to P0. This is a driver bug
+    affecting both --query-gpu and -q -d POWER paths. The second query
+    returns the correct value.
+
+    If max_plausible_w > 0, re-reads once if the first value exceeds it.
     """
     val = parse_watts((query_gpu(["power.draw"]) or {}).get("power.draw", ""))
     if max_plausible_w <= 0 or (val >= 0 and val <= max_plausible_w):
         return val
-
-    rc, out, _ = run("nvidia-smi -q -d POWER", timeout=15)
-    if rc == 0 and out:
-        for line in out.splitlines():
-            stripped = line.strip()
-            if stripped.startswith("Instantaneous Power Draw"):
-                watts_str = stripped.split(":")[1].strip().replace("W", "").strip()
-                cross_val = parse_float(watts_str)
-                if cross_val <= max_plausible_w:
-                    return cross_val
-                break
-    return val
+    time.sleep(0.1)
+    return parse_watts((query_gpu(["power.draw"]) or {}).get("power.draw", ""))
 
 
 # ---------------------------------------------------------------------------
