@@ -1349,12 +1349,12 @@ class GPUChecker:
 
         max_gpu_temp = gpu_temp
         max_mem_temp = mem_temp
-        if hasattr(self, "gpuburn_monitor"):
+        if self.gpuburn_monitor:
             max_gpu_temp = max(gpu_temp, self.gpuburn_monitor.get("max_gpu_temp", 0))
             max_mem_temp = max(mem_temp, self.gpuburn_monitor.get("max_mem_temp", 0))
 
         details_parts = [f"post-burn: gpu_temp={gpu_temp:.0f}C, mem_temp={mem_temp:.0f}C, power={power:.1f}W"]
-        if hasattr(self, "gpuburn_monitor") and self.gpuburn_monitor.get("samples", 0) > 0:
+        if self.gpuburn_monitor and self.gpuburn_monitor.get("samples", 0) > 0:
             details_parts.append(
                 f"during stress: max_gpu_temp={max_gpu_temp:.0f}C, max_mem_temp={max_mem_temp:.0f}C, "
                 f"sm_clock={self.gpuburn_monitor['min_sm_clock']:.0f}-{self.gpuburn_monitor['max_sm_clock']:.0f}MHz, "
@@ -1450,12 +1450,12 @@ class GPUChecker:
 
         max_gpu_temp = gpu_temp
         max_mem_temp = mem_temp
-        if hasattr(self, "gpufryer_monitor"):
+        if self.gpufryer_monitor:
             max_gpu_temp = max(gpu_temp, self.gpufryer_monitor.get("max_gpu_temp", 0))
             max_mem_temp = max(mem_temp, self.gpufryer_monitor.get("max_mem_temp", 0))
 
         details_parts = [f"post-fryer: gpu_temp={gpu_temp:.0f}C, mem_temp={mem_temp:.0f}C, power={power:.1f}W"]
-        if hasattr(self, "gpufryer_monitor") and self.gpufryer_monitor.get("samples", 0) > 0:
+        if self.gpufryer_monitor and self.gpufryer_monitor.get("samples", 0) > 0:
             details_parts.append(
                 f"during stress: max_gpu_temp={max_gpu_temp:.0f}C, max_mem_temp={max_mem_temp:.0f}C, "
                 f"sm_clock={self.gpufryer_monitor['min_sm_clock']:.0f}-{self.gpufryer_monitor['max_sm_clock']:.0f}MHz, "
@@ -1507,7 +1507,7 @@ class GPUChecker:
     def check_power_verification(self):
         step = "power-verification"
         name = "Power draw verification under load (gpu-fryer)"
-        if self.args.skip_stress or not hasattr(self, "gpufryer_monitor"):
+        if self.args.skip_stress or not self.gpufryer_monitor:
             self._skip(step, name, "No gpu-fryer load monitoring data (stress test skipped or failed)")
             return
 
@@ -1540,7 +1540,7 @@ class GPUChecker:
     def check_vram_fill_verification(self):
         step = "vram-fill-verification"
         name = "VRAM fill verification under load (gpu-fryer)"
-        if self.args.skip_stress or not hasattr(self, "gpufryer_monitor"):
+        if self.args.skip_stress or not self.gpufryer_monitor:
             self._skip(step, name, "No gpu-fryer load monitoring data (stress test skipped or failed)")
             return
 
@@ -1818,7 +1818,8 @@ class GPUChecker:
         parse_ok = False
         try:
             resp_obj = json.loads(resp)
-            response_text = resp_obj.get("choices", [{}])[0].get("message", {}).get("content", "")
+            msg = resp_obj.get("choices", [{}])[0].get("message", {})
+            response_text = msg.get("content", "") or msg.get("reasoning_content", "")
             parse_ok = True
         except (json.JSONDecodeError, IndexError):
             response_text = resp[:500]
