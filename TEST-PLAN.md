@@ -54,7 +54,25 @@ Verify:
 gpu_burn -h
 ```
 
-### 3. Install llama.cpp
+### 3. Install gpu-fryer
+
+```bash
+# Option A: cargo (native binary)
+cargo install gpu-fryer
+export GPU_CHECK_GPU_FRYER="$HOME/.cargo/bin/gpu-fryer"
+
+# Option B: Docker / Podman (no build needed)
+# No install required, but set path in config to the container run command
+# Or just install the binary for simplicity
+```
+
+Verify:
+
+```bash
+gpu-fryer --version
+```
+
+### 4. Install llama.cpp
 
 You need `llama-server` and `llama-bench` with CUDA support.
 
@@ -74,7 +92,7 @@ llama-server --help | head -5
 llama-bench --help | head -5
 ```
 
-### 4. Download model files
+### 5. Download model files
 
 Download these GGUF files. The script needs the first shard of split files;
 llama-server auto-loads the rest.
@@ -86,44 +104,41 @@ llama-server auto-loads the rest.
 
 Place them in a directory and note the path.
 
-### 5. Configure the config file
+### 6. Configure the config file
 
 Open `configs/rtx-pro-6000-maxq.toml`. The **only section you need to change**
-is `[paths]` at the bottom:
-
-```toml
-[paths]
-models_dir = "/path/to/your/gguf/files"   # <-- change this
-gpu_burn_path = "gpu_burn"                 # <-- or full path if not in PATH
-llama_server_path = "llama-server"         # <-- or full path if not in PATH
-llama_bench_path = "llama-bench"           # <-- or full path if not in PATH
-llama_server_host = "127.0.0.1"
-llama_server_port = 8080
-```
+is `[paths]` at the bottom. Set `models_dir` to your GGUF directory, and set
+`gpu_burn_path`, `gpu_fryer_path`, `llama_server_path`, and `llama_bench_path`
+to the full paths of each binary if they are not in PATH.
 
 Alternatively, use environment variables (these override the config):
 
 ```bash
 export GPU_CHECK_MODELS_DIR="/path/to/your/gguf/files"
 export GPU_CHECK_GPU_BURN="/full/path/to/gpu_burn"
+export GPU_CHECK_GPU_FRYER="/full/path/to/gpu-fryer"
 export GPU_CHECK_LLAMA_SERVER="/full/path/to/llama-server"
 export GPU_CHECK_LLAMA_BENCH="/full/path/to/llama-bench"
 ```
 
-### 6. Pre-compute 5090 baseline (if workstation has a 5090)
+### 7. Pre-compute 5090 baseline (if workstation has a 5090)
 
 Before the seller arrives, run the full check on the 5090 to record a
 performance baseline:
 
 ```bash
 # Edit configs/rtx-5090.toml [paths] section first!
-python3 gpu-check.py --config configs/rtx-5090.toml
+python3 gpu-check.py --config configs/rtx-5090.toml --continue-on-fail
 ```
+
+Note: the 5090 has 32 GB VRAM and cannot load the 67 GB fill model. The
+`llm-fill` check will SKIP if the model file is absent, or FAIL if present.
+Use `--skip-llm` if you only need the stress test baseline, or let it SKIP.
 
 Note the `pp512` and `tg128` values from the llama-bench step. The Max-Q
 should be within 10-15% of these (both cards have 1792 GB/s bandwidth).
 
-### 7. Verify the tool works
+### 8. Verify the tool works
 
 Run the quick check (no stress, no LLM) to confirm all tooling is working:
 
@@ -131,7 +146,7 @@ Run the quick check (no stress, no LLM) to confirm all tooling is working:
 python3 gpu-check.py --config configs/rtx-5090.toml --skip-stress --skip-llm --skip-bug-report
 ```
 
-### 8. Have ready
+### 9. Have ready
 
 - Phone or camera for photographing the card
 - Good light source (phone flashlight or desk lamp)
@@ -305,7 +320,7 @@ python3 gpu-check.py --config configs/rtx-pro-6000-maxq.toml
 This is the correct mode for the actual purchase test. Use
 `--continue-on-fail` only when testing the tool itself.
 
-The script runs 30 checks in sequence:
+The script runs 36 checks in sequence:
 
 1. nvidia-smi availability
 2. GPU identity (name, VRAM, device ID, VBIOS, serial)
@@ -313,20 +328,32 @@ The script runs 30 checks in sequence:
 4. PCIe link (gen, width, replay errors)
 5. Thermal T.Limit threshold sanity check
 6-11. Baseline: ECC, row remapper, retired pages, AER counters, idle thermals, kernel log
-12. gpu-burn stress test (15 min, with load snapshot capture)
-13. PCIe link under load (auto-resolves idle PCIe gen warning)
-14. Clock verification under load (SW Power Cap bug screen)
-15-20. Post-stress: ECC, row remapper, retired pages, AER delta, kernel log, throttle reasons
-21. LLM smoke test (load model, verify coherent output)
-22. LLM VRAM-fill test (load large model, verify VRAM usage)
-23. llama-bench benchmark (pp512 and tg128 tokens/sec)
-24-28. Final: ECC, row remapper, retired pages, AER delta, kernel log
-29. Cooldown verification
-30. nvidia-bug-report capture
+12. gpu-burn stress test (5 min, ALU error detection, clock verification)
+13. PCIe link under load (gpu-burn)
+14. Clock verification under load
+15. gpu-fryer stress test (10 min, full TGP power/thermal, VRAM fill)
+16. Power draw verification under full TGP load
+17. VRAM fill verification
+18. PCIe link under full TGP load (gpu-fryer)
+19. Clock and throttle verification under full TGP (gpu-fryer)
+20-25. Post-stress: ECC, row remapper, retired pages, AER counters, AER error delta, kernel log
+26. LLM smoke test (load model, verify coherent output)
+27. LLM VRAM-fill test (load large model, verify VRAM usage)
+28. llama-bench benchmark (pp512 and tg128 tokens/sec)
+29-34. Final: ECC, row remapper, retired pages, AER counters, AER error delta, kernel log
+35. Cooldown verification
+36. nvidia-bug-report capture
 
-### 2.3 During the stress test
+### 2.3 During the stress tests
 
-The script will run gpu-burn for 15 minutes. During this time:
+The script runs two stress tests for a total of 15 minutes:
+
+1. **gpu-burn** (5 min): ALU error detection, clock verification, PCIe under
+   moderate load
+2. **gpu-fryer** (10 min): Full TGP power/thermal stress, VRAM fill to ~95%,
+   PCIe under maximum power draw
+
+During both tests:
 
 1. **Listen** for fan grinding, clicking, or coil whine
 2. **Watch** for any visual artefacts on screen
@@ -361,7 +388,7 @@ After the stress test, power off and physically re-inspect the 16-pin
 connector. Look for any new discolouration or heat marks that were not
 present before the test.
 
-**WALK AWAY** if the connector shows any signs of heating during the 5-minute
+**WALK AWAY** if the connector shows any signs of heating during the
 stress test.
 
 ### 3.2 Verify the card identity matches the listing
@@ -369,7 +396,7 @@ stress test.
 Confirm that:
 - The GPU name shown by `nvidia-smi` matches what the seller advertised
 - The serial number matches what was on the listing
-- The VBIOS version is in the expected range (98.02.5x.x)
+- The VBIOS version is in the expected range (98.02.6x.x)
 
 ### 3.3 Verify no thermal issues
 
@@ -430,20 +457,22 @@ the next one.
 9. Any Xid error in kernel log
 10. Any AER non-fatal or fatal error
 11. gpu-burn fails, crashes, or reports errors
-12. GPU temp exceeds 90C during stress
-13. Memory temp exceeds 100C during stress (if measurable)
-14. HW Thermal Slowdown active during stress
-15. HW Power Brake active during stress
-16. SW Thermal Slowdown active during stress
-17. SW Power Cap active under load (known Blackwell telemetry bug)
-18. SM clock below expected minimum under load
-19. T.Limit specification at zero (possible VBIOS corruption)
-20. Any CUDA error during LLM inference
-21. LLM output is incoherent or garbage
-22. llama-bench pp512/tg128 more than 15% below 5090 baseline
-23. VRAM usage does not reach expected levels during model load
-24. Temperature does not return to idle after load stops
-25. 16-pin connector shows new heat marks after stress test
+12. gpu-fryer fails, crashes, or detects throttling
+13. Power draw below 85% of TDP during gpu-fryer
+14. VRAM does not fill to at least 80% during gpu-fryer
+15. GPU temp exceeds 90C during stress
+16. Memory temp exceeds 100C during stress (if measurable)
+17. HW Thermal Slowdown active during stress
+18. HW Power Brake active during stress
+19. SW Thermal Slowdown active during stress
+20. SM clock below expected minimum under load
+21. T.Limit specification at zero (possible VBIOS corruption)
+22. Any CUDA error during LLM inference
+23. LLM output is incoherent or garbage
+24. llama-bench pp512/tg128 more than 15% below 5090 baseline
+25. VRAM usage does not reach expected levels during model load
+26. Temperature does not return to idle after load stops
+27. 16-pin connector shows new heat marks after stress test
 
 ### If in doubt, walk away.
 
@@ -451,71 +480,29 @@ the next one.
 
 ## Config File Reference
 
-The card configuration is in `configs/rtx-pro-6000-maxq.toml`. Key sections:
+The card configuration is in `configs/rtx-pro-6000-maxq.toml`. See the file
+for exact values. Key sections:
 
-### `[card]` -- Card identity (do not change)
-
-This config is set for the Dell OEM variant of the Max-Q (device ID 2BB4,
-subvendor Dell/1028, VBIOS 98.02.6x). The seller's GPU-Z screenshot confirmed
-these values. The hardware is identical GB202 silicon; only the branding and
-VBIOS update path differ (Dell-only).
-
-```toml
-expected_gpu_name = "NVIDIA RTX PRO 6000 Blackwell Max-Q"
-expected_vram_mib = 98304          # 96 GB
-expected_device_id = "10DE:2BB4"   # Dell OEM variant of GB202
-expected_subsystem_vendor = "1028" # Dell
-vbios_prefix = "98.02.6"           # 6x confirmed from seller GPU-Z
-expected_power_default_w = 300
-expected_power_max_w = 300
-expected_pcie_gen = 5
-expected_pcie_width = 16
-ecc_supported = true
-ecc_expected_enabled = true
-```
-
-### `[thresholds]` -- Temperature and power limits (adjust if needed)
-
-```toml
-gpu_temp_max_c = 85        # warn above this
-gpu_temp_walkaway_c = 90   # fail above this
-mem_temp_max_c = 95
-mem_temp_walkaway_c = 100
-power_sustain_min_w = 250  # minimum power draw expected during stress
-idle_temp_max_c = 55
-idle_power_max_w = 30
-cooldown_time_s = 120
-cooldown_temp_max_c = 60
-```
-
-### `[stress]` -- Stress test configuration
-
-```toml
-tool = "gpu-burn"
-duration_s = 900           # 15 minutes
-```
-
-### `[llm.smoke]` and `[llm.fill]` -- Model files (adjust paths)
-
-`model_file` can be an absolute path or a filename relative to `models_dir`.
-
-### `[paths]` -- MACHINE-SPECIFIC, change these for each machine
-
-```toml
-models_dir = "."           # <-- set to your GGUF directory
-gpu_burn_path = "gpu_burn"
-llama_server_path = "llama-server"
-llama_bench_path = "llama-bench"
-llama_server_host = "127.0.0.1"
-llama_server_port = 8080
-```
-
-Or use environment variables (override the config):
+- **`[card]`**: Card identity (name, VRAM, device ID, subvendor, VBIOS prefix,
+  power limits, PCIe gen/width, ECC, min clock speeds under load). Set for the
+  Dell OEM variant of the Max-Q (device ID 2BB4, subvendor Dell/1028, VBIOS
+  98.02.6x). Do not change.
+- **`[thresholds]`**: Temperature and power limits for pass/fail (GPU/mem max
+  and walkaway temps, power sustain minimum, idle temp/power, cooldown time
+  and temp). Adjust if needed.
+- **`[stress]`**: Stress test durations. `gpuburn_duration_s` (default 300s / 5 min
+  for ALU error detection) and `gpufryer_duration_s` (default 600s / 10 min for
+  full TGP power/thermal and VRAM fill).
+- **`[llm.smoke]` and `[llm.fill]`**: Model files and expected VRAM usage.
+  `model_file` can be an absolute path or a filename relative to `models_dir`.
+- **`[paths]`**: Machine-specific binary paths and models directory. Change
+  these for each machine. Can also be overridden via environment variables:
 
 | Variable | Purpose |
 |---|---|
 | `GPU_CHECK_MODELS_DIR` | Directory containing GGUF model files |
 | `GPU_CHECK_GPU_BURN` | Path to gpu_burn binary |
+| `GPU_CHECK_GPU_FRYER` | Path to gpu-fryer binary |
 | `GPU_CHECK_LLAMA_SERVER` | Path to llama-server binary |
 | `GPU_CHECK_LLAMA_BENCH` | Path to llama-bench binary |
 

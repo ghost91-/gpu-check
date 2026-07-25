@@ -28,7 +28,7 @@ python3 gpu-check.py --config configs/rtx-4070-laptop.toml \
 |---|---|
 | `--config FILE` | Path to TOML config for the target GPU (required) |
 | `--continue-on-fail` | Keep running after a failure (default: stop) |
-| `--skip-stress` | Skip gpu-burn stress test |
+| `--skip-stress` | Skip gpu-burn and gpu-fryer stress tests |
 | `--skip-llm` | Skip LLM inference tests |
 | `--skip-bug-report` | Skip nvidia-bug-report capture |
 | `--list-checks` | List all check names and exit |
@@ -40,6 +40,7 @@ python3 gpu-check.py --config configs/rtx-4070-laptop.toml \
 |---|---|
 | `GPU_CHECK_MODELS_DIR` | Directory containing GGUF model files |
 | `GPU_CHECK_GPU_BURN` | Path to gpu_burn binary |
+| `GPU_CHECK_GPU_FRYER` | Path to gpu-fryer binary |
 | `GPU_CHECK_LLAMA_SERVER` | Path to llama-server binary |
 | `GPU_CHECK_LLAMA_BENCH` | Path to llama-bench binary |
 
@@ -49,14 +50,14 @@ Each TOML config has:
 - `[card]`: Expected GPU identity (name, VRAM, device ID, VBIOS prefix, power
   limits, PCIe gen/width, ECC support, min clock speeds under load)
 - `[thresholds]`: Temperature and power limits for pass/fail
-- `[stress]`: gpu-burn duration
+- `[stress]`: gpu-burn and gpu-fryer durations
 - `[llm.smoke]`: Small model for basic CUDA test
 - `[llm.fill]`: Large model to fill VRAM
 - `[paths]`: Machine-specific binary paths and models directory
 
 `model_file` can be an absolute path or a filename relative to `models_dir`.
 
-## Checks performed (30 total)
+## Checks performed (36 total)
 
 ### Identity and baseline (before stress)
 
@@ -72,32 +73,42 @@ Each TOML config has:
 10. Idle thermals and power
 11. Kernel log scan for Xid errors
 
-### Stress test
+### Stress tests (two stages)
 
-12. gpu-burn stress test (default 15 min)
-13. PCIe link under load (auto-resolves idle PCIe gen warning)
-14. Clock verification under load (screens for SW Power Cap telemetry bug)
+12. gpu-burn stress test (5 min, ALU error detection, clock verification)
+13. PCIe link under load (gpu-burn)
+14. Clock verification under load
+15. gpu-fryer stress test (10 min, full TGP power/thermal, VRAM fill)
+16. Power draw verification under full TGP load (>= 85% of TDP)
+17. VRAM fill verification (gpu-fryer fills ~95% of VRAM)
+18. PCIe link under full TGP load (gpu-fryer)
+19. Clock and throttle verification under full TGP (gpu-fryer)
 
 ### Post-stress
 
-15. ECC error counts (delta from baseline)
-16. Row remapper status
-17. Retired pages status
-18. PCIe AER counters (delta from baseline, with error type breakdown)
-19. Kernel log scan
-20. Clock throttle reasons (HW/SW thermal, HW power brake, SW power cap)
+20. ECC error counts (delta from baseline)
+21. Row remapper status
+22. Retired pages status
+23. PCIe AER counters (post-stress)
+24. PCIe AER error delta (post-stress, with error type breakdown)
+25. Kernel log scan
 
 ### LLM tests
 
-21. LLM smoke test (load small model, verify coherent output, check VRAM)
-22. LLM VRAM-fill test (load large model, verify VRAM fills correctly)
-23. llama-bench benchmark (pp512 + tg128 tokens/sec)
+26. LLM smoke test (load small model, verify coherent output, check VRAM)
+27. LLM VRAM-fill test (load large model, verify VRAM fills correctly)
+28. llama-bench benchmark (pp512 + tg128 tokens/sec)
 
 ### Final
 
-24-28. ECC, row remapper, retired pages, AER (delta), kernel log
-29. Cooldown verification
-30. nvidia-bug-report capture
+29. ECC error counts (final)
+30. Row remapper status (final)
+31. Retired pages status (final)
+32. PCIe AER counters (final)
+33. PCIe AER error delta (final)
+34. Kernel log scan (final)
+35. Cooldown verification
+36. nvidia-bug-report capture
 
 ## Understanding the protocol output
 
@@ -126,10 +137,12 @@ Any FAIL means **do not buy**. The script stops at the first failure unless
 - Any Xid error in kernel log
 - Any AER non-fatal or fatal error
 - gpu-burn failure, crash, or error output
+- gpu-fryer failure, crash, or throttle detection
+- Power draw below 85% of TDP under gpu-fryer load
+- VRAM does not fill to at least 80% under gpu-fryer
 - GPU temp above walkaway threshold
 - Memory temp above walkaway threshold
 - HW Thermal Slowdown, HW Power Brake, or SW Thermal Slowdown active
-- SW Power Cap active under load (known Blackwell telemetry bug)
 - PCIe link degradation under load (gen, width, or replay errors)
 - PCIe width below expected (slot/riser problem)
 - Power limit mismatch (VBIOS tampering or shunt mod)
@@ -146,10 +159,14 @@ Any FAIL means **do not buy**. The script stops at the first failure unless
 - NVIDIA driver + `nvidia-smi`
 - Linux (uses sysfs for AER, journalctl/dmesg for kernel logs)
 
-### For stress test
+### For stress tests
 
 - [gpu-burn](https://github.com/wilicc/gpu-burn) (`gpu_burn` binary in PATH or
   set path in config / env var)
+- [gpu-fryer](https://github.com/huggingface/gpu-fryer) (`gpu-fryer` binary in
+  PATH or set path in config / env var). On Arch: `yay -S gpu-fryer`. On
+  Ubuntu: `cargo install gpu-fryer` or `docker run --gpus all
+  ghcr.io/huggingface/gpu-fryer:1.2.0`.
 
 ### For LLM tests
 

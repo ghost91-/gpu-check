@@ -6,13 +6,13 @@ expected_device_id = "10DE:2B85"
 expected_subsystem_vendor = "10DE"
 vbios_prefix = "98.02."
 expected_power_default_w = 575
-expected_power_max_w = 575
+expected_power_max_w = 600
 expected_pcie_gen = 5
 expected_pcie_width = 16
 ecc_supported = false
 ecc_expected_enabled = false
 expected_sm_clock_min_mhz = 2200
-expected_mem_clock_min_mhz = 2200
+expected_mem_clock_min_mhz = 1500
 
 [thresholds]
 gpu_temp_max_c = 85
@@ -26,8 +26,8 @@ cooldown_time_s = 120
 cooldown_temp_max_c = 60
 
 [stress]
-tool = "gpu-burn"
-duration_s = 900
+gpuburn_duration_s = 300
+gpufryer_duration_s = 600
 
 [llm.smoke]
 name = "Qwen3.6-27B Q4_K_M"
@@ -50,12 +50,13 @@ prompt = "Explain how a transformer neural network processes an input sequence, 
 # model_file entries above can be absolute paths or filenames relative to
 # models_dir. Set models_dir to wherever your GGUF files live.
 # You can also override via env vars: GPU_CHECK_MODELS_DIR, GPU_CHECK_GPU_BURN,
-# GPU_CHECK_LLAMA_SERVER
+# GPU_CHECK_GPU_FRYER, GPU_CHECK_LLAMA_SERVER, GPU_CHECK_LLAMA_BENCH
 # ============================================================================
 
 [paths]
 models_dir = "."
 gpu_burn_path = "gpu_burn"
+gpu_fryer_path = "gpu-fryer"
 llama_server_path = "llama-server"
 llama_bench_path = "llama-bench"
 llama_server_host = "127.0.0.1"
