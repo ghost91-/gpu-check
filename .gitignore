@@ -1,0 +1,23 @@
+# Personal / project-specific docs (not for public repo)
+SELLER-LOG.md
+PRICE-RESEARCH.md
+IMAGE-ANALYSIS.md
+DEV-NOTES.md
+
+# Seller images
+images/
+
+# Protocols (test results, may contain serial numbers)
+protocols/
+
+# Laptop config (contains local paths)
+configs/rtx-4070-laptop.toml
+
+# nvidia-bug-report output
+*.log.gz
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/

@@ -1,0 +1,61 @@
+[card]
+name = "NVIDIA GeForce RTX 5090"
+expected_gpu_name = "NVIDIA GeForce RTX 5090"
+expected_vram_mib = 32768
+expected_device_id = "10DE:2B85"
+expected_subsystem_vendor = "10DE"
+vbios_prefix = "98.02."
+expected_power_default_w = 575
+expected_power_max_w = 575
+expected_pcie_gen = 5
+expected_pcie_width = 16
+ecc_supported = false
+ecc_expected_enabled = false
+expected_sm_clock_min_mhz = 2200
+expected_mem_clock_min_mhz = 2200
+
+[thresholds]
+gpu_temp_max_c = 85
+gpu_temp_walkaway_c = 90
+mem_temp_max_c = 95
+mem_temp_walkaway_c = 100
+power_sustain_min_w = 500
+idle_temp_max_c = 55
+idle_power_max_w = 30
+cooldown_time_s = 120
+cooldown_temp_max_c = 60
+
+[stress]
+tool = "gpu-burn"
+duration_s = 900
+
+[llm.smoke]
+name = "Qwen3.6-27B Q4_K_M"
+model_file = "qwen3.6-27b-q4_k_m.gguf"
+expected_vram_usage_mib = 18432
+context_length = 4096
+perf_baseline_label = "self-baseline"
+perf_tolerance_pct = 0
+
+[llm.fill]
+name = "Qwen3.5-122B-A10B Q4_K_M"
+model_file = "Qwen_Qwen3.5-122B-A10B-Q4_K_M-00001-of-00002.gguf"
+expected_vram_usage_mib = 68608
+context_length = 8192
+
+# ============================================================================
+# MACHINE-SPECIFIC PATHS -- change these for each machine
+# model_file entries above can be absolute paths or filenames relative to
+# models_dir. Set models_dir to wherever your GGUF files live.
+# You can also override via env vars: GPU_CHECK_MODELS_DIR, GPU_CHECK_GPU_BURN,
+# GPU_CHECK_LLAMA_SERVER
+# ============================================================================
+
+[paths]
+models_dir = "."
+gpu_burn_path = "gpu_burn"
+llama_server_path = "llama-server"
+llama_bench_path = "llama-bench"
+dcgmi_path = "dcgmi"
+llama_server_host = "127.0.0.1"
+llama_server_port = 8080
