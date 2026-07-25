@@ -1106,23 +1106,65 @@ class GPUChecker:
                 preexec_fn=os.setsid,
             )
 
-            load_snapshot = None
-            snapshot_time = self.cfg.stress_duration_s // 2
+            load_monitor = {
+                "max_gpu_temp": 0.0,
+                "max_mem_temp": 0.0,
+                "min_sm_clock": 999999.0,
+                "max_sm_clock": 0.0,
+                "min_power": 999999.0,
+                "max_power": 0.0,
+                "throttle_activated": [],
+                "samples": 0,
+            }
+            throttle_fields = [
+                "clocks_event_reasons.hw_thermal_slowdown",
+                "clocks_event_reasons.sw_power_cap",
+                "clocks_event_reasons.hw_power_brake_slowdown",
+                "clocks_event_reasons.sw_thermal_slowdown",
+            ]
+            monitor_fields = [
+                "temperature.gpu",
+                "temperature.memory",
+                "power.draw",
+                "clocks.current.sm",
+            ] + throttle_fields
+
             elapsed = 0
             while elapsed < self.cfg.stress_duration_s + 60:
                 if proc.poll() is not None:
                     break
-                if elapsed >= snapshot_time and load_snapshot is None:
-                    load_snapshot = get_throttle_reasons_live()
-                    load_snapshot["power.draw"] = (query_gpu(["power.draw"]) or {}).get("power.draw", "")
-                    load_snapshot["temperature.gpu"] = (query_gpu(["temperature.gpu"]) or {}).get("temperature.gpu", "")
-                    load_snapshot["temperature.memory"] = (query_gpu(["temperature.memory"]) or {}).get("temperature.memory", "")
-                    print(f"  >>> Load snapshot taken at {elapsed}s: "
-                          f"sm={load_snapshot.get('clocks.current.sm', '?')}, "
-                          f"mem={load_snapshot.get('clocks.current.mem', '?')}, "
-                          f"power={load_snapshot.get('power.draw', '?')}")
-                time.sleep(5)
-                elapsed += 5
+                snap = query_gpu(monitor_fields) or {}
+                if snap:
+                    gpu_t = parse_float(snap.get("temperature.gpu", "0"))
+                    mem_t = parse_float(snap.get("temperature.memory", "0"))
+                    power = parse_watts(snap.get("power.draw", ""))
+                    sm_clock = parse_float(snap.get("clocks.current.sm", "0"))
+
+                    if gpu_t > 0:
+                        load_monitor["max_gpu_temp"] = max(load_monitor["max_gpu_temp"], gpu_t)
+                    if mem_t > 0:
+                        load_monitor["max_mem_temp"] = max(load_monitor["max_mem_temp"], mem_t)
+
+                    if power > 30 and sm_clock > 0:
+                        load_monitor["min_sm_clock"] = min(load_monitor["min_sm_clock"], sm_clock)
+                        load_monitor["max_sm_clock"] = max(load_monitor["max_sm_clock"], sm_clock)
+                        load_monitor["min_power"] = min(load_monitor["min_power"], power)
+                        load_monitor["max_power"] = max(load_monitor["max_power"], power)
+
+                    for field in throttle_fields:
+                        val = snap.get(field, "")
+                        if val and val.upper() == "ACTIVE" and field not in load_monitor["throttle_activated"]:
+                            load_monitor["throttle_activated"].append(field)
+
+                    load_monitor["samples"] += 1
+
+                if elapsed > 0 and elapsed % 60 == 0:
+                    print(f"  >>> {elapsed}s: gpu_temp={load_monitor['max_gpu_temp']:.0f}C, "
+                          f"sm_clock={load_monitor['min_sm_clock']:.0f}-{load_monitor['max_sm_clock']:.0f}MHz, "
+                          f"power={load_monitor['min_power']:.0f}-{load_monitor['max_power']:.0f}W, "
+                          f"samples={load_monitor['samples']}")
+                time.sleep(1)
+                elapsed += 1
 
             try:
                 os.killpg(os.getpgid(proc.pid), 0)
@@ -1139,6 +1181,20 @@ class GPUChecker:
 
             out = (out or "").strip()
             err = (err or "").strip()
+
+            if load_monitor["min_sm_clock"] == 999999.0:
+                load_monitor["min_sm_clock"] = 0.0
+            if load_monitor["min_power"] == 999999.0:
+                load_monitor["min_power"] = 0.0
+
+            print(f"  >>> Stress monitoring complete: {load_monitor['samples']} samples over {elapsed}s")
+            print(f"  >>> Max GPU temp: {load_monitor['max_gpu_temp']:.0f}C, "
+                  f"SM clock range: {load_monitor['min_sm_clock']:.0f}-{load_monitor['max_sm_clock']:.0f}MHz, "
+                  f"power range: {load_monitor['min_power']:.0f}-{load_monitor['max_power']:.0f}W")
+            if load_monitor["throttle_activated"]:
+                print(f"  >>> Throttle reasons activated: {', '.join(load_monitor['throttle_activated'])}")
+
+            self.load_monitor = load_monitor
 
             if proc.returncode not in (0, None, -15, 124):
                 self._fail(
@@ -1163,35 +1219,46 @@ class GPUChecker:
                 )
                 return
 
-            self.load_snapshot = load_snapshot
+            self.load_monitor = load_monitor
 
         info = get_live_metrics()
         gpu_temp = parse_float(info.get("temperature.gpu", "0"))
         mem_temp = parse_float(info.get("temperature.memory", "0"))
         power = parse_watts(info.get("power.draw", ""))
 
-        details = (
-            f"post-burn: gpu_temp={gpu_temp:.0f}C, mem_temp={mem_temp:.0f}C, power={power:.1f}W"
-        )
+        max_gpu_temp = gpu_temp
+        max_mem_temp = mem_temp
+        if hasattr(self, "load_monitor"):
+            max_gpu_temp = max(gpu_temp, self.load_monitor.get("max_gpu_temp", 0))
+            max_mem_temp = max(mem_temp, self.load_monitor.get("max_mem_temp", 0))
+
+        details_parts = [f"post-burn: gpu_temp={gpu_temp:.0f}C, mem_temp={mem_temp:.0f}C, power={power:.1f}W"]
+        if hasattr(self, "load_monitor") and self.load_monitor.get("samples", 0) > 0:
+            details_parts.append(
+                f"during stress: max_gpu_temp={max_gpu_temp:.0f}C, max_mem_temp={max_mem_temp:.0f}C, "
+                f"sm_clock={self.load_monitor['min_sm_clock']:.0f}-{self.load_monitor['max_sm_clock']:.0f}MHz, "
+                f"power={self.load_monitor['min_power']:.0f}-{self.load_monitor['max_power']:.0f}W"
+            )
+        details = "; ".join(details_parts)
 
         problems = []
-        if gpu_temp > self.cfg.gpu_temp_walkaway_c:
+        if max_gpu_temp > self.cfg.gpu_temp_walkaway_c:
             problems.append(
-                f"GPU temp {gpu_temp:.0f}C > walkaway threshold "
+                f"GPU temp {max_gpu_temp:.0f}C > walkaway threshold "
                 f"{self.cfg.gpu_temp_walkaway_c}C"
             )
-        elif gpu_temp > self.cfg.gpu_temp_max_c:
+        elif max_gpu_temp > self.cfg.gpu_temp_max_c:
             problems.append(
-                f"GPU temp {gpu_temp:.0f}C > max threshold {self.cfg.gpu_temp_max_c}C"
+                f"GPU temp {max_gpu_temp:.0f}C > max threshold {self.cfg.gpu_temp_max_c}C"
             )
-        if mem_temp > 0 and mem_temp > self.cfg.mem_temp_walkaway_c:
+        if max_mem_temp > 0 and max_mem_temp > self.cfg.mem_temp_walkaway_c:
             problems.append(
-                f"memory temp {mem_temp:.0f}C > walkaway threshold "
+                f"memory temp {max_mem_temp:.0f}C > walkaway threshold "
                 f"{self.cfg.mem_temp_walkaway_c}C"
             )
-        elif mem_temp > 0 and mem_temp > self.cfg.mem_temp_max_c:
+        elif max_mem_temp > 0 and max_mem_temp > self.cfg.mem_temp_max_c:
             problems.append(
-                f"memory temp {mem_temp:.0f}C > max threshold {self.cfg.mem_temp_max_c}C"
+                f"memory temp {max_mem_temp:.0f}C > max threshold {self.cfg.mem_temp_max_c}C"
             )
 
         if problems:
@@ -1202,8 +1269,8 @@ class GPUChecker:
     def check_pcie_under_load(self):
         step = "pcie-under-load"
         name = "PCIe link under load"
-        if self.args.skip_stress or not hasattr(self, "load_snapshot") or not self.load_snapshot:
-            self._skip(step, name, "No load snapshot available (stress test skipped or failed)")
+        if self.args.skip_stress or not hasattr(self, "load_monitor"):
+            self._skip(step, name, "No load monitoring data (stress test skipped or failed)")
             return
 
         info = get_pcie_link_info()
@@ -1239,45 +1306,43 @@ class GPUChecker:
     def check_clock_verification(self):
         step = "clock-verification"
         name = "Clock verification under load (SW Power Cap bug screen)"
-        if self.args.skip_stress or not hasattr(self, "load_snapshot") or not self.load_snapshot:
-            self._skip(step, name, "No load snapshot available (stress test skipped or failed)")
+        if self.args.skip_stress or not hasattr(self, "load_monitor"):
+            self._skip(step, name, "No load monitoring data (stress test skipped or failed)")
             return
 
-        snap = self.load_snapshot
-        sm_clock = parse_float(snap.get("clocks.current.sm", "0"))
-        max_clock = parse_float(snap.get("clocks.max.sm", "0"))
-        mem_clock = parse_float(snap.get("clocks.current.mem", "0"))
-        power = parse_watts(snap.get("power.draw", ""))
-
-        sw_power_cap = snap.get("clocks_event_reasons.sw_power_cap", "")
-        hw_thermal = snap.get("clocks_event_reasons.hw_thermal_slowdown", "")
-        hw_power_brake = snap.get("clocks_event_reasons.hw_power_brake_slowdown", "")
+        mon = self.load_monitor
+        min_sm_clock = mon.get("min_sm_clock", 0)
+        max_sm_clock = mon.get("max_sm_clock", 0)
+        max_power = mon.get("max_power", 0)
+        max_gpu_temp = mon.get("max_gpu_temp", 0)
+        throttle_activated = mon.get("throttle_activated", [])
 
         details = (
-            f"sm={sm_clock:.0f}MHz (max {max_clock:.0f}MHz), "
-            f"mem={mem_clock:.0f}MHz, power={power:.1f}W, "
-            f"sw_power_cap={sw_power_cap}, hw_thermal={hw_thermal}, "
-            f"hw_power_brake={hw_power_brake}"
+            f"during stress: sm_clock={min_sm_clock:.0f}-{max_sm_clock:.0f}MHz, "
+            f"max_power={max_power:.1f}W, max_gpu_temp={max_gpu_temp:.0f}C, "
+            f"throttle_activated={throttle_activated or 'none'}"
         )
 
         problems = []
-        if self.cfg.expected_sm_clock_min_mhz > 0 and sm_clock > 0:
-            if sm_clock < self.cfg.expected_sm_clock_min_mhz:
+        if self.cfg.expected_sm_clock_min_mhz > 0 and min_sm_clock > 0:
+            if min_sm_clock < self.cfg.expected_sm_clock_min_mhz:
                 problems.append(
-                    f"SM clock {sm_clock:.0f}MHz < expected minimum "
+                    f"min SM clock {min_sm_clock:.0f}MHz < expected minimum "
                     f"{self.cfg.expected_sm_clock_min_mhz:.0f}MHz under load"
                 )
-        if sw_power_cap and sw_power_cap.upper() == "ACTIVE":
-            problems.append("SW Power Cap is ACTIVE under load (known Blackwell telemetry bug indicator)")
-        if hw_thermal and hw_thermal.upper() == "ACTIVE":
-            problems.append("HW Thermal Slowdown is ACTIVE under load")
-        if hw_power_brake and hw_power_brake.upper() == "ACTIVE":
-            problems.append("HW Power Brake is ACTIVE under load")
+        if "clocks_event_reasons.sw_power_cap" in throttle_activated:
+            problems.append("SW Power Cap was ACTIVE during stress (known Blackwell telemetry bug indicator)")
+        if "clocks_event_reasons.hw_thermal_slowdown" in throttle_activated:
+            problems.append("HW Thermal Slowdown was ACTIVE during stress")
+        if "clocks_event_reasons.hw_power_brake_slowdown" in throttle_activated:
+            problems.append("HW Power Brake was ACTIVE during stress")
+        if "clocks_event_reasons.sw_thermal_slowdown" in throttle_activated:
+            problems.append("SW Thermal Slowdown was ACTIVE during stress")
 
         if problems:
-            self._fail(step, name, "; ".join(problems) + f" | {details}", snap)
+            self._fail(step, name, "; ".join(problems) + f" | {details}", mon)
         else:
-            self._pass(step, name, details, snap)
+            self._pass(step, name, details, mon)
 
     # ---- Post-stress checks ----
 
