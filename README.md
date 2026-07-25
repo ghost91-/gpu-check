@@ -107,15 +107,12 @@ Each check is logged as `[PASS]`, `[FAIL]`, `[WARN]`, `[SKIP]`, or `[MANUAL]`.
 
 Warnings include an `ACTION:` line with explicit instructions:
 
-- **PCIe gen low at idle**: Normal power saving. The `pcie-under-load` check
-  re-verifies under stress. If that passes, ignore this warning.
 - **AER correctable errors during stress**: Correctable PCIe errors are
   self-healed. If the count is low and stable after reseating, safe to
   proceed. If the count keeps rising after reseat, walk away.
-- **T.Limit specification at zero**: Possible VBIOS thermal config corruption
-  (known Blackwell bug). Compare with a known-good card of the same model.
-- **nvidia-bug-report / llama-bench parse failures**: Tooling issues, not
-  card health. Re-run manually if needed.
+
+Tooling issues (nvidia-bug-report sudo, llama-bench parse failures) are
+logged as SKIP, not WARN. Only real card-health warnings produce WARN.
 
 ### FAIL results
 

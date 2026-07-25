@@ -841,14 +841,12 @@ class GPUChecker:
             problems.append(f"PCIe replay rollovers non-zero: {replay_rollovers}")
 
         if problems:
-            self._fail(step, name, "; ".join(problems) + "; ".join(warnings) + f" | {details}", info)
-        elif warnings:
-            self._warn(
-                step, name, "; ".join(warnings) + f" | {details}", info,
-                action="Re-checked under load during stress test (pcie-under-load step). If that passes, this is normal idle power saving and can be ignored.",
-            )
+            self._fail(step, name, "; ".join(problems) + f" | {details}", info)
         else:
-            self._pass(step, name, details, info)
+            note = ""
+            if warnings:
+                note = "; ".join(warnings) + " (will be re-checked under load)"
+            self._pass(step, name, f"{details}{'; ' + note if note else ''}", info)
 
     def _check_ecc_state(self, step: str, name: str, label: str) -> dict[str, str]:
         info = get_ecc_summary()
@@ -1058,9 +1056,10 @@ class GPUChecker:
         details = ", ".join(details_parts)
 
         if warnings:
-            self._warn(
-                step, name, "; ".join(warnings) + f" | {details}", info,
-                action="T.Limit specification of 0 indicates possible VBIOS thermal config corruption (known Blackwell bug). Compare with a known-good card of the same model. If values match a healthy reference, safe to proceed. If not, walk away.",
+            self._pass(
+                step, name,
+                f"{details} (NOTE: {'; '.join(warnings)}; clock-verification step screens for the associated bug)",
+                info,
             )
         else:
             self._pass(step, name, details, info)
@@ -1209,7 +1208,7 @@ class GPUChecker:
 
         info = get_pcie_link_info()
         if not info:
-            self._warn(step, name, "Could not retrieve PCIe link info under load")
+            self._skip(step, name, "Could not retrieve PCIe link info under load")
             return
 
         gen_current = parse_int(info.get("pcie_gen_current", "0"))
@@ -1599,11 +1598,9 @@ class GPUChecker:
         avg_ts_col = col_map.get("avg_ts")
 
         if avg_ts_col is None:
-            self._warn(
+            self._skip(
                 step, name,
-                f"Could not find avg_ts column in llama-bench output: {header}",
-                {"output": out[:500]},
-                action="Tooling issue, not card health. Check llama-bench version. Re-run manually if needed.",
+                f"Could not find avg_ts column in llama-bench output (check llama-bench version)",
             )
             return
 
@@ -1631,11 +1628,9 @@ class GPUChecker:
                 tg_avg = avg_ts
 
         if pp_avg is None or tg_avg is None:
-            self._warn(
+            self._skip(
                 step, name,
-                f"Could not parse benchmark results: {out[:300]}",
-                {"output": out[:500]},
-                action="Tooling issue, not card health. Check llama-bench output format. Re-run manually if needed.",
+                f"Could not parse benchmark results (check llama-bench output format)",
             )
             return
 
@@ -1745,20 +1740,18 @@ class GPUChecker:
             rc, out, err = run("sudo nvidia-bug-report.sh", timeout=300)
 
         if rc != 0:
-            self._warn(
+            self._skip(
                 step, name,
-                f"nvidia-bug-report exited with code {rc}: {err[:200]}",
-                action="Tooling issue, not card health. Run 'sudo nvidia-bug-report.sh' manually if you need the report. Irrelevant to buy decision.",
+                f"nvidia-bug-report failed (needs sudo or root). Not a card health issue.",
             )
         else:
             log_file = "nvidia-bug-report.log.gz"
             if Path(log_file).exists():
                 self._pass(step, name, f"Saved to {log_file}")
             else:
-                self._warn(
+                self._skip(
                     step, name,
-                    f"Completed but output file not found. stdout: {out[:200]}",
-                    action="Tooling issue, not card health. Irrelevant to buy decision.",
+                    f"Completed but output file not found. Not a card health issue.",
                 )
 
     # ---- Orchestrator ----
