@@ -36,12 +36,14 @@ expected_vram_usage_mib = 18432
 context_length = 4096
 perf_baseline_label = "self-baseline"
 perf_tolerance_pct = 0
+prompt = "Explain how a transformer neural network processes an input sequence, from tokenisation to the final output logits. Cover embedding, attention, and the feed-forward layers. Aim for about 200 words."
 
 [llm.fill]
 name = "Qwen3.5-122B-A10B Q4_K_M"
 model_file = "Qwen_Qwen3.5-122B-A10B-Q4_K_M-00001-of-00002.gguf"
 expected_vram_usage_mib = 68608
 context_length = 8192
+prompt = "Explain how a transformer neural network processes an input sequence, from tokenisation to the final output logits. Cover embedding, attention, and the feed-forward layers. Aim for about 200 words."
 
 # ============================================================================
 # MACHINE-SPECIFIC PATHS -- change these for each machine

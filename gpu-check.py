@@ -18,6 +18,7 @@ echoed to stdout.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import shutil
@@ -1479,7 +1480,7 @@ class GPUChecker:
         prompt_json = (
             '{"messages": [{"role": "user", "content": "'
             + prompt.replace('"', '\\"').replace("\n", "\\n")
-            + '"}]}'
+            + '"}], "temperature": 0, "seed": 42, "max_tokens": 300}'
         )
         rc, resp, err = run(
             [
@@ -1493,7 +1494,7 @@ class GPUChecker:
                 "-d",
                 prompt_json,
             ],
-            timeout=120,
+            timeout=180,
         )
 
         vram_info = query_gpu(["memory.used", "memory.total"])
@@ -1514,6 +1515,19 @@ class GPUChecker:
             self._fail(step, name, "Empty response from model")
             return False
 
+        response_text = ""
+        try:
+            resp_obj = json.loads(resp)
+            response_text = resp_obj.get("choices", [{}])[0].get("message", {}).get("content", "")
+        except (json.JSONDecodeError, IndexError):
+            pass
+
+        if response_text:
+            print(f"\n  >>> Model output (review for coherence):\n")
+            for line in response_text.splitlines():
+                print(f"    {line}")
+            print()
+
         details = (
             f"model={model_name}, vram_used={vram_used} MiB "
             f"(expected ~{expected_vram_mib} MiB), response_length={len(resp)}"
@@ -1530,6 +1544,15 @@ class GPUChecker:
             self._fail(step, name, "; ".join(problems) + f" | {details}", {"response": resp[:500]})
         else:
             self._pass(step, name, details, {"response": resp[:500]})
+
+        if response_text:
+            self._manual(
+                f"{step}-coherence",
+                f"LLM output coherence review ({model_name})",
+                "Review the model output above for coherence. If the text is garbled, "
+                "repetitive, or off-topic, the GPU may have VRAM issues. If it reads as "
+                "a coherent technical explanation, the CUDA compute path is healthy.",
+            )
 
         time.sleep(3)
         return True
@@ -1890,11 +1913,15 @@ def load_config(config_path: Path) -> GPUConfig:
         llama_server_port=paths.get("llama_server_port", 8080),
         smoke_prompt=llm_smoke.get(
             "prompt",
-            "What is 17 multiplied by 23? Reply with just the number.",
+            "Explain how a transformer neural network processes an input sequence, "
+            "from tokenisation to the final output logits. Cover embedding, attention, "
+            "and the feed-forward layers. Aim for about 200 words.",
         ),
         fill_prompt=llm_fill.get(
             "prompt",
-            "What is 17 multiplied by 23? Reply with just the number.",
+            "Explain how a transformer neural network processes an input sequence, "
+            "from tokenisation to the final output logits. Cover embedding, attention, "
+            "and the feed-forward layers. Aim for about 200 words.",
         ),
     )
 
