@@ -569,6 +569,31 @@ def parse_watts(val: str) -> float:
     return parse_float(val)
 
 
+def read_power_draw(max_plausible_w: float = 0) -> float:
+    """Read power.draw, cross-checking if the value is implausible.
+
+    nvidia-smi --query-gpu occasionally returns garbage sensor readings.
+    If the first reading exceeds max_plausible_w (when > 0), re-reads via
+    nvidia-smi -q -d POWER which uses a different code path.
+    Returns -1.0 if both fail or return N/A.
+    """
+    val = parse_watts((query_gpu(["power.draw"]) or {}).get("power.draw", ""))
+    if max_plausible_w <= 0 or (val >= 0 and val <= max_plausible_w):
+        return val
+
+    rc, out, _ = run("nvidia-smi -q -d POWER", timeout=15)
+    if rc == 0 and out:
+        for line in out.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("Instantaneous Power Draw"):
+                watts_str = stripped.split(":")[1].strip().replace("W", "").strip()
+                cross_val = parse_float(watts_str)
+                if cross_val <= max_plausible_w:
+                    return cross_val
+                break
+    return val
+
+
 # ---------------------------------------------------------------------------
 # Check definitions
 # ---------------------------------------------------------------------------
@@ -1011,7 +1036,7 @@ class GPUChecker:
 
         gpu_temp = parse_float(info.get("temperature.gpu", "0"))
         mem_temp = parse_float(info.get("temperature.memory", "0"))
-        power = parse_watts(info.get("power.draw", ""))
+        power = read_power_draw(self.cfg.expected_power_max_w)
         fan = info.get("fan.speed", "")
         pstate = info.get("pstate", "")
 
@@ -1138,6 +1163,8 @@ class GPUChecker:
                     gpu_t = parse_float(snap.get("temperature.gpu", "0"))
                     mem_t = parse_float(snap.get("temperature.memory", "0"))
                     power = parse_watts(snap.get("power.draw", ""))
+                    if self.cfg.expected_power_max_w > 0 and power > self.cfg.expected_power_max_w * 2:
+                        power = read_power_draw(self.cfg.expected_power_max_w)
                     sm_clock = parse_float(snap.get("clocks.current.sm", "0"))
 
                     if gpu_t > 0:
@@ -1224,7 +1251,7 @@ class GPUChecker:
         info = get_live_metrics()
         gpu_temp = parse_float(info.get("temperature.gpu", "0"))
         mem_temp = parse_float(info.get("temperature.memory", "0"))
-        power = parse_watts(info.get("power.draw", ""))
+        power = read_power_draw(self.cfg.expected_power_max_w)
 
         max_gpu_temp = gpu_temp
         max_mem_temp = mem_temp
@@ -1769,7 +1796,7 @@ class GPUChecker:
 
         info = get_live_metrics()
         gpu_temp = parse_float(info.get("temperature.gpu", "0"))
-        power = parse_watts(info.get("power.draw", ""))
+        power = read_power_draw(self.cfg.expected_power_max_w)
 
         details = f"gpu_temp={gpu_temp:.0f}C, power={power:.1f}W after {self.cfg.cooldown_time_s}s"
 
