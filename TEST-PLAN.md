@@ -493,7 +493,7 @@ cooldown_temp_max_c = 60
 
 ```toml
 tool = "gpu-burn"
-duration_s = 300           # 5 minutes
+duration_s = 900           # 15 minutes
 ```
 
 ### `[llm.smoke]` and `[llm.fill]` -- Model files (adjust paths)
